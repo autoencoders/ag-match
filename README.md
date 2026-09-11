@@ -152,3 +152,17 @@ uv run pytest                     # unit tests, no API calls
 AG_MATCH_LIVE=1 uv run pytest tests/test_live.py -s   # live smoke test against Gemini
 uv run ruff check . && uv run ruff format .
 ```
+
+## Vendor into an app
+
+The `package` branch holds only the contents of `src/ag_match` at its root. Copy it
+into an app under any name with git subtree; the result is plain committed files with
+no reference back to this repo:
+
+```sh
+git subtree add --prefix=myapp/namematch git@github.com:autoencoders/ag-match.git package --squash
+```
+
+Then add `pydantic` and `pydantic-ai-slim[google]` to the app's dependencies and import
+from the new path. To pick up later changes, repeat with `git subtree pull`. Refresh the
+branch after merging to main with `./scripts/publish-package-branch.sh main`.
