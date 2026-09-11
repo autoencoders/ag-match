@@ -1,0 +1,37 @@
+[project]
+name = "ag-match"
+version = "0.1.0"
+description = "LLM-driven name matching: an agent proposes exact search strings, runs them through a runtime-mounted search tool, and decides which record matches."
+readme = "README.md"
+authors = [{ name = "Julian Mulla" }]
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.7",
+    "pydantic-ai-slim[google,openai,anthropic]>=1.0",
+]
+
+[project.scripts]
+ag-match = "ag_match.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.6",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.10,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+extend-exclude = ["*.md"]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
