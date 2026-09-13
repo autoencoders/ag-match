@@ -85,7 +85,9 @@ async def test_result_from_run_and_summary_with_scripted_model():
             },
         ]
     )
-    run = await Matcher(tool, model=model, config=MatchConfig()).match_async(case.query)
+    run = await Matcher(tool, model=model, config=MatchConfig(prefetch=False)).match_async(
+        case.query
+    )
     res = result_from_run(case, run, 0.1, ds)
     assert res.outcome == "tp" and res.correct and res.searches == 1
     assert res.matched_name == "Globex Corporation"
@@ -104,6 +106,6 @@ async def test_heuristic_model_drives_the_agent_loop():
     run = await matcher.match_async("Globex Corporaton")
     assert run.decision.status == "matched"
     assert run.match.name == "Globex Corporation"
-    assert 1 <= run.usage.tool_calls <= 4
+    assert run.usage.tool_calls <= 4
     absent = await matcher.match_async("Xanthippe Freight Global Ltd")
     assert absent.decision.status == "no_match"

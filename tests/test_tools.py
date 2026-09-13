@@ -58,13 +58,71 @@ async def test_session_dedupes_records_across_searches(tool):
     assert set(session.seen) == {"c1", "c2", "c3"}
 
 
-async def test_session_too_many_hides_records_and_asks_to_narrow(tool):
-    session = SearchSession(tool, MatchConfig(records_per_search=2, too_many_threshold=2))
+async def test_session_too_many_shows_most_similar_by_default(tool):
+    cfg = MatchConfig(records_per_search=2, too_many_threshold=2, fetch_limit=10)
+    session = SearchSession(tool, cfg, query_name="Acme Software")
     reply = await session.run("Acme")
     assert reply.total_count == 3
+    assert [r.id for r in reply.records][0] == "c3" and len(reply.records) == 2
+    assert "Too many results (3 > 2)" in reply.note and "2 most similar" in reply.note
+
+
+async def test_session_too_many_can_hide_records(tool):
+    cfg = MatchConfig(records_per_search=2, too_many_threshold=2, show_on_too_many=False)
+    session = SearchSession(tool, cfg)
+    reply = await session.run("Acme")
     assert reply.records == []
     assert "Too many results" in reply.note
     assert session.seen == {}
+
+
+async def test_session_ranks_by_similarity_to_query_name(tool):
+    session = SearchSession(tool, MatchConfig(), query_name="Acme Widgets Limited")
+    reply = await session.run("Acme")
+    assert [r.id for r in reply.records][0] == "c2"
+
+
+async def test_session_modes(tool):
+    session = SearchSession(tool, MatchConfig())
+    assert session.modes == ["contains", "all_terms", "fuzzy"]
+    both = await session.run("widgets acme", "all_terms")
+    assert [r.id for r in both.records] == ["c2"]
+    fuzzy = await session.run("Acmee Widgts", "fuzzy")
+    assert fuzzy.already_shown_ids == ["c2"] and fuzzy.total_count == 1
+    same = await session.run("ACME", "contains")
+    assert same.total_count == 3  # a different mode is not a repeat
+
+
+async def test_session_unsupported_mode_short_circuits():
+    class ContainsOnly:
+        description = "contains only"
+
+        def search(self, query, limit):
+            return SearchResult(total_count=0)
+
+    session = SearchSession(ContainsOnly(), MatchConfig())
+    reply = await session.run("x", "fuzzy")
+    assert "not supported" in reply.note and "contains" in reply.note
+    assert session.searches_used == 0
+
+
+async def test_prefetch_runs_distinctive_words_and_fuzzy(tool):
+    session = SearchSession(tool, MatchConfig(), query_name="Sirius Cybernetics Group Ltd")
+    replies = await session.prefetch()
+    assert [(r.query, r.mode) for r in replies] == [
+        ("sirius", "contains"),
+        ("cybernetics", "contains"),
+        ("sirius cybernetics", "fuzzy"),
+    ]
+    assert replies[0].records[0].id == "c10"
+    assert replies[1].already_shown_ids == ["c10"]
+    assert session.searches_used == 0
+    assert all(t.source == "prefetch" for t in session.trace)
+
+
+async def test_prefetch_can_be_disabled(tool):
+    session = SearchSession(tool, MatchConfig(prefetch=False), query_name="Sirius")
+    assert await session.prefetch() == []
 
 
 async def test_session_truncates_at_records_per_search(tool):
@@ -72,7 +130,7 @@ async def test_session_truncates_at_records_per_search(tool):
     reply = await session.run("Acme")
     assert reply.total_count == 3
     assert len(reply.records) == 2
-    assert "Showing 2 of 3" in reply.note
+    assert "Showing the 2 most similar of 3 matches" in reply.note
 
 
 async def test_session_no_results_hint(tool):
@@ -135,6 +193,17 @@ async def test_session_accepts_async_tools_and_plain_dicts():
 def test_config_threshold_must_cover_cap():
     with pytest.raises(ValueError):
         MatchConfig(records_per_search=20, too_many_threshold=10)
+    with pytest.raises(ValueError):
+        MatchConfig(records_per_search=20, fetch_limit=10)
+    assert MatchConfig().effective_fetch_limit == 60
+
+
+def test_in_memory_fuzzy_and_all_terms(tool):
+    fuzzy = tool.search_fuzzy("Cybernetcs", 5)
+    assert [r.id for r in fuzzy.records] == ["c10"]
+    assert tool.search_fuzzy("Zzyzx", 5).total_count == 0
+    both = tool.search_all_terms(["holdings", "GROUP"], 5)
+    assert [r.id for r in both.records] == ["c7"]
 
 
 def test_search_result_rejects_negative_count():

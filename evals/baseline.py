@@ -94,12 +94,24 @@ def _query_from(messages: list[ModelMessage]) -> str:
     return ""
 
 
+_CANDIDATE = re.compile(r"^- \[(?P<id>[^\]]+)\] (?P<name>.*?)(?: \((?P<extra>[^)]*)\))?$")
+_PREFETCH = re.compile(r"^- (?P<mode>\w+) '(?P<query>.*)': ")
+
+
 def _search_returns(messages: list[ModelMessage]) -> tuple[list[str], list[Record], int]:
-    """(queries searched, records seen, count of too-many replies)."""
+    """(queries searched, records seen, count of too-many replies), prefetch included."""
     queries: list[str] = []
     seen: dict[str, Record] = {}
     too_many = 0
     for m in messages:
+        if isinstance(m, ModelRequest):
+            for p in m.parts:
+                if isinstance(p, UserPromptPart) and isinstance(p.content, str):
+                    for line in p.content.splitlines():
+                        if cm := _CANDIDATE.match(line):
+                            seen[cm["id"]] = Record(id=cm["id"], name=cm["name"])
+                        elif pm := _PREFETCH.match(line):
+                            queries.append(pm["query"])
         if isinstance(m, ModelResponse):
             for p in m.parts:
                 if isinstance(p, ToolCallPart) and p.tool_name == "search":
