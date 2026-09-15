@@ -8,6 +8,14 @@ from pydantic import BaseModel, Field, model_validator
 
 Scalar = str | int | float | bool | None
 
+SearchMode = Literal["contains", "all_terms", "fuzzy"]
+"""How a search string is interpreted by the backend.
+
+contains: the whole string appears inside a name (case and accent insensitive).
+all_terms: every whitespace-separated term appears somewhere in the name, any order.
+fuzzy: every term matches some word of the name within a small edit distance.
+"""
+
 
 class Record(BaseModel):
     """One entry from the list being matched against.
@@ -37,6 +45,7 @@ class SearchReply(BaseModel):
     """What the LLM sees after a search. Built by `SearchSession`, not by tools."""
 
     query: str
+    mode: SearchMode = "contains"
     total_count: int
     records: list[Record] = Field(
         default_factory=list, description="Matching records not shown in an earlier search."
@@ -64,20 +73,54 @@ class MatchConfig(BaseModel):
     output_retries: int = Field(
         default=2, ge=0, description="Retries when the final decision fails validation."
     )
+    fetch_limit: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Rows fetched from the backend per search before ranking by similarity to the "
+            "query and cutting to records_per_search. Defaults to too_many_threshold."
+        ),
+    )
+    show_on_too_many: bool = Field(
+        default=True,
+        description=(
+            "Above the threshold, still show the most similar fetched rows alongside the "
+            "narrow-it note instead of nothing."
+        ),
+    )
+    prefetch: bool = Field(
+        default=True,
+        description=(
+            "Before the first LLM turn, search each distinctive word of the query (and run a "
+            "fuzzy search when the backend supports it) and show the candidates up front."
+        ),
+    )
+    prefetch_terms: int = Field(
+        default=3, ge=0, description="Max distinctive words searched during prefetch."
+    )
+    temperature: float | None = Field(default=0.0, description="Sampling temperature.")
 
     @model_validator(mode="after")
-    def _threshold_above_cap(self) -> MatchConfig:
+    def _limits_consistent(self) -> MatchConfig:
         if self.too_many_threshold < self.records_per_search:
             raise ValueError("too_many_threshold must be >= records_per_search")
+        if self.fetch_limit is not None and self.fetch_limit < self.records_per_search:
+            raise ValueError("fetch_limit must be >= records_per_search")
         return self
+
+    @property
+    def effective_fetch_limit(self) -> int:
+        return self.fetch_limit or self.too_many_threshold
 
 
 MatchStatus = Literal["matched", "no_match", "ambiguous", "inconclusive"]
 
 
 class MatchDecision(BaseModel):
-    """Final verdict for one query name."""
+    """Final verdict for one query name. `reasoning` comes first on purpose: the model
+    writes its evidence before it commits to a status and an id."""
 
+    reasoning: str = Field(description="One or two sentences. Name the evidence.")
     status: MatchStatus = Field(
         description=(
             "matched: exactly one record is the same entity. "
@@ -89,7 +132,6 @@ class MatchDecision(BaseModel):
         default=None, description="Id of the matched record. Required when status is matched."
     )
     confidence: float = Field(ge=0.0, le=1.0, description="0 to 1.")
-    reasoning: str = Field(description="One or two sentences. Name the evidence.")
     alternatives: list[str] = Field(
         default_factory=list,
         description="Ids of other shown records that could plausibly be the match, best first.",
@@ -98,12 +140,14 @@ class MatchDecision(BaseModel):
 
 class SearchTrace(BaseModel):
     query: str
+    mode: SearchMode = "contains"
     normalized: str
     total_count: int
     shown_ids: list[str]
     already_shown_ids: list[str]
     note: str | None
     executed: bool = Field(description="False when short-circuited (repeat or budget).")
+    source: Literal["agent", "prefetch"] = "agent"
 
 
 class Usage(BaseModel):
