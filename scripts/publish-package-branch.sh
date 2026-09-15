@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # Refresh the `package` branch: the contents of src/ag_match at the root, nothing else.
 # Apps vendor it with:
-#   git subtree add --prefix=<path> git@github.com:autoencoders/ag-match.git package --squash
+#   git subtree add --prefix=<path> https://github.com/autoencoders/ag-match.git package --squash
 # Run from any checkout after the source changes land, e.g. ./scripts/publish-package-branch.sh main
 set -eu
 src="${1:-HEAD}"

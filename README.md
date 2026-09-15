@@ -227,7 +227,7 @@ into an app under any name with git subtree; the result is plain committed files
 no reference back to this repo:
 
 ```sh
-git subtree add --prefix=myapp/namematch git@github.com:autoencoders/ag-match.git package --squash
+git subtree add --prefix=myapp/namematch https://github.com/autoencoders/ag-match.git package --squash
 ```
 
 Then add `pydantic` and `pydantic-ai-slim[google]` to the app's dependencies and import
