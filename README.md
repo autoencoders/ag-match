@@ -153,6 +153,24 @@ AG_MATCH_LIVE=1 uv run pytest tests/test_live.py -s   # live smoke test against 
 uv run ruff check . && uv run ruff format .
 ```
 
+## Evaluate
+
+`evals/` builds a seeded synthetic dataset (about 130 curated targets, 1,500 filler
+records, 500 queries with typos, suffix changes, abbreviations, reorderings, accents,
+namesakes needing context, and three kinds of negatives) and scores a run: accuracy,
+precision, recall, searches and tokens per case, and a per-kind breakdown with every
+failure listed.
+
+```sh
+uv run python -m evals.run --baseline                    # fuzzy-string reference, no LLM
+uv run python -m evals.run --model heuristic             # agent loop driven by a fake LLM, no API
+uv run python -m evals.run --model gemini --sample 100   # real model on a subset
+uv run python -m evals.run --model gemini --too-many 30 --max-searches 5   # try other defaults
+```
+
+Reports land in `evals/results/` as markdown plus a JSON file with every case, decision,
+search string and token count. Use `--kinds typo,reorder` to focus on one failure mode.
+
 ## Vendor into an app
 
 The `package` branch holds only the contents of `src/ag_match` at its root. Copy it
