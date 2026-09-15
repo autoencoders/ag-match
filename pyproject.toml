@@ -13,6 +13,11 @@ dependencies = [
 [project.scripts]
 ag-match = "ag_match.cli:main"
 
+[project.optional-dependencies]
+bigquery = [
+    "google-cloud-bigquery>=3.20",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=8",

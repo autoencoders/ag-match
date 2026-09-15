@@ -5,11 +5,14 @@ figures out which record, if any, is the same entity. It copes with misspellings
 abbreviations, legal-suffix noise, reordered words and transliterations where plain
 string matching fails.
 
-How it works: the LLM proposes short, distinctive strings to search; the runtime runs
-them through the tool you mounted and hands back the hits; the LLM narrows, widens or
-decides. The runtime enforces all budgets and shaping, so the LLM never sees more than
-a capped number of records per search and gets told to narrow when a string matches too
-much. See [docs/PLAN.md](docs/PLAN.md) for the design.
+How it works: before the LLM's first turn the runtime searches each distinctive word of
+the query (and runs a fuzzy search when the backend supports it) and presents the
+candidates. If none is clearly right, the LLM proposes further short, distinctive
+strings, the runtime runs them through the tool you mounted, and the LLM narrows,
+widens or decides. The runtime enforces all budgets and shaping: fetched rows are ranked
+by similarity to the query, only a capped number are shown per search, and the LLM is
+told to narrow when a string matches too much. See [docs/PLAN.md](docs/PLAN.md) for the
+design.
 
 ## Install
 
@@ -74,20 +77,32 @@ project comes from the metadata server. `GOOGLE_CLOUD_PROJECT` and
 `GOOGLE_CLOUD_LOCATION` override the defaults. With no credentials anywhere the ADC
 probe takes a few seconds before failing with a message listing the options.
 
+## Search modes
+
+The LLM-facing `search` tool takes a string and a mode. A backend implements `contains`
+and may add the other two; the runtime tells the LLM which modes exist.
+
+| mode | backend method | meaning |
+|---|---|---|
+| `contains` | `search(query, limit)` | the whole string appears inside a name, case and accent insensitive |
+| `all_terms` | `search_all_terms(terms, limit)` | every term appears somewhere in the name, any order |
+| `fuzzy` | `search_fuzzy(query, limit)` | every term matches a word of the name within a small edit distance (1 up to 5 letters, else 2) |
+
+Fuzzy is what recovers misspellings the LLM cannot guess. On the synthetic eval set,
+exact substring search can surface the right record for 90% of queries at best; fuzzy
+search reaches 100%.
+
 ## Mount your own search backend
 
-Implement two things: a `description` that tells the LLM how matching works on your
-backend, and `search(query, limit)` returning the total match count plus up to `limit`
-records. Sync or async both work.
+Implement a `description` that tells the LLM what your backend holds, and
+`search(query, limit)` returning the total match count plus up to `limit` records. Add
+`search_all_terms` and `search_fuzzy` to unlock those modes. Sync or async both work.
 
 ```python
 from ag_match import Record, SearchResult
 
 class SqlNameSearch:
-    description = (
-        "Case-insensitive substring match (SQL ILIKE) over the `legal_name` and "
-        "`trade_name` columns of ~40k companies."
-    )
+    description = "~40k companies; searches cover the `legal_name` and `trade_name` columns."
 
     def __init__(self, conn):
         self.conn = conn
@@ -111,6 +126,35 @@ class SqlNameSearch:
 matcher = Matcher(SqlNameSearch(conn))
 ```
 
+### BigQuery
+
+`ag_match.bigquery.BigQuerySearchTool` implements all three modes in SQL. Install the
+extra with `uv sync --extra bigquery` (or add `google-cloud-bigquery` to your app).
+
+```python
+from google.cloud import bigquery
+from ag_match import Matcher
+from ag_match.bigquery import BigQuerySearchTool
+
+tool = BigQuerySearchTool(
+    bigquery.Client(),
+    table="proj.dataset.companies",
+    id_column="company_id",
+    name_column="legal_name",
+    extra_columns=["country", "city"],   # shown to the LLM for disambiguation
+    alias_columns=["trade_name"],        # searched alongside legal_name
+    where="status = 'active'",           # optional filter
+)
+matcher = Matcher(tool)
+```
+
+Names are normalized in SQL the same way as in Python (accents stripped via
+`NORMALIZE(..., NFKD)` and `REGEXP_REPLACE`, then lower-cased). `contains` and
+`all_terms` use `STRPOS`; `fuzzy` uses `EDIT_DISTANCE(word, term, max_distance => n)`
+over the words of each name and orders by total distance. Each search is one query that
+also returns the total count through `COUNT(*) OVER()`. Every call scans the table, so
+for very large tables put the normalized name in a column or a materialized view.
+
 Extra tools are plain typed callables with a docstring:
 
 ```python
@@ -127,11 +171,16 @@ matcher = Matcher(SqlNameSearch(conn), extra_tools=[lookup_ticker])
 
 | field | default | meaning |
 |---|---|---|
-| `records_per_search` | 15 | max records shown per search |
-| `too_many_threshold` | 60 | above this count, no records are shown and the LLM is asked to narrow |
-| `max_searches` | 8 | search calls per match |
+| `records_per_search` | 15 | max records shown per search, the most similar to the query first |
+| `too_many_threshold` | 60 | above this count the LLM is asked to narrow; with `show_on_too_many` it still sees the most similar rows fetched |
+| `fetch_limit` | = threshold | rows fetched from the backend per search before ranking |
+| `show_on_too_many` | true | show the most similar fetched rows even above the threshold |
+| `prefetch` | true | search each distinctive word (and fuzzy) before the first LLM turn |
+| `prefetch_terms` | 3 | max distinctive words searched during prefetch |
+| `max_searches` | 8 | search calls the LLM may make per match; prefetch does not count |
 | `max_rounds` | 6 | LLM requests per match; exceeding it ends the run as `inconclusive` |
 | `output_retries` | 2 | retries when the final decision fails validation |
+| `temperature` | 0.0 | sampling temperature; `None` leaves the model default |
 
 A decision is validated before it is accepted: `match_id` and `alternatives` must be
 ids the LLM was actually shown.

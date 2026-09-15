@@ -37,6 +37,7 @@ class CaseResult:
     outcome: str
     correct: bool
     searches: int
+    prefetch_searches: int
     search_queries: list[str]
     too_many: int
     zero_hits: int
@@ -68,7 +69,8 @@ def classify(case: Case, status: str, match_id: str | None, alternatives: list[s
 def result_from_run(case: Case, run: MatchRun, seconds: float, dataset: Dataset) -> CaseResult:
     d = run.decision
     outcome = classify(case, d.status, d.match_id, d.alternatives)
-    executed = [t for t in run.searches if t.executed]
+    executed = [t for t in run.searches if t.executed and t.source == "agent"]
+    prefetched = [t for t in run.searches if t.executed and t.source == "prefetch"]
     return CaseResult(
         case=case.to_dict(),
         status=d.status,
@@ -78,9 +80,12 @@ def result_from_run(case: Case, run: MatchRun, seconds: float, dataset: Dataset)
         outcome=outcome,
         correct=outcome in ("tp", "tn"),
         searches=len(executed),
-        search_queries=[t.query for t in run.searches],
-        too_many=sum(1 for t in executed if (t.note or "").startswith("Too many")),
-        zero_hits=sum(1 for t in executed if t.total_count == 0),
+        prefetch_searches=len(prefetched),
+        search_queries=[
+            f"{t.mode}:{t.query}" if t.mode != "contains" else t.query for t in run.searches
+        ],
+        too_many=sum(1 for t in executed + prefetched if (t.note or "").startswith("Too many")),
+        zero_hits=sum(1 for t in executed + prefetched if t.total_count == 0),
         requests=run.usage.requests,
         input_tokens=run.usage.input_tokens,
         output_tokens=run.usage.output_tokens,
@@ -121,6 +126,7 @@ async def run_llm(
                     outcome="error",
                     correct=False,
                     searches=0,
+                    prefetch_searches=0,
                     search_queries=[],
                     too_many=0,
                     zero_hits=0,
@@ -154,6 +160,7 @@ def run_baseline(dataset: Dataset, cases: list[Case], *, threshold: float) -> li
                 outcome=outcome,
                 correct=outcome in ("tp", "tn"),
                 searches=0,
+                prefetch_searches=0,
                 search_queries=[],
                 too_many=0,
                 zero_hits=0,
@@ -218,6 +225,7 @@ def summarize(results: list[CaseResult]) -> dict[str, Any]:
         "searches_mean": mean([r.searches for r in llm]),
         "searches_p95": p95([r.searches for r in llm]),
         "searches_max": max((r.searches for r in llm), default=0),
+        "prefetch_mean": mean([r.prefetch_searches for r in llm]),
         "requests_mean": mean([r.requests for r in llm]),
         "too_many_total": sum(r.too_many for r in llm),
         "zero_hit_total": sum(r.zero_hits for r in llm),
@@ -244,6 +252,7 @@ def render_report(summary: dict[str, Any], results: list[CaseResult], label: str
         f"| f1 | {s['f1']:.3f} |",
         "| searches per case (mean / p95 / max) | "
         f"{s['searches_mean']:.2f} / {s['searches_p95']:.0f} / {s['searches_max']} |",
+        f"| prefetch searches per case | {s['prefetch_mean']:.2f} |",
         f"| LLM requests per case | {s['requests_mean']:.2f} |",
         "| tokens per case (in / out) | "
         f"{s['input_tokens_mean']:.0f} / {s['output_tokens_mean']:.0f} |",

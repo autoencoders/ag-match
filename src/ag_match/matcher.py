@@ -10,20 +10,18 @@ from typing import Any, Literal
 from pydantic_ai import Agent, ModelRetry, RunContext, Tool
 from pydantic_ai.exceptions import AgentRunError, UnexpectedModelBehavior, UsageLimitExceeded
 from pydantic_ai.models import Model
+from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import UsageLimits
 
 from .models import GoogleCloudAuth, resolve_model
 from .prompts import build_instructions, build_user_prompt
-from .tools import SearchSession, SearchTool
-from .types import MatchConfig, MatchDecision, MatchRun, SearchReply, Usage
+from .tools import MODE_SEMANTICS, SearchSession, SearchTool, available_modes
+from .types import MatchConfig, MatchDecision, MatchRun, SearchMode, SearchReply, Usage
 
 SEARCH_TOOL_DESCRIPTION = """\
-Search the list for records containing an exact string. Returns the total match count, \
-the matching records not shown before, ids of matching records already shown, and a note \
-from the runtime. Above the too-many threshold no records are returned: narrow the string.
-
-Backend semantics:
-{backend}
+Search the list. Returns the total match count, the matching records not shown before \
+(ranked by similarity to the query), ids of matching records already shown, and a note \
+from the runtime. Modes: {modes}.
 """
 
 
@@ -45,7 +43,7 @@ class Matcher:
         search: The search backend. Its `description` is shown to the LLM.
         model: pydantic-ai model instance or spec string. Defaults to `DEFAULT_MODEL`,
             currently Gemini 3.8 Flash.
-        config: Budgets and shaping thresholds.
+        config: Budgets, shaping thresholds, prefetch and sampling settings.
         google_cloud: Vertex AI credentials (service account, explicit credentials or
             ADC settings) for `google-cloud:` and `gemini:` model specs.
         extra_tools: Additional tools exposed to the LLM: plain typed callables or
@@ -67,20 +65,25 @@ class Matcher:
         self.search_tool = search
         self.config = config or MatchConfig()
         self.model = resolve_model(model, google_cloud=google_cloud)
+        self.modes = available_modes(search)
         if instructions is None:
-            text = build_instructions(search.description, self.config)
+            text = build_instructions(search.description, self.modes, self.config)
         else:
             text = instructions.format(
                 tool_description=search.description.strip(),
+                modes="\n".join(f"- {m}: {MODE_SEMANTICS[m]}" for m in self.modes),
                 **self.config.model_dump(),
             )
 
         search_tool = Tool(
             _search,
             name="search",
-            description=SEARCH_TOOL_DESCRIPTION.format(backend=search.description.strip()),
-            max_retries=0,
+            description=SEARCH_TOOL_DESCRIPTION.format(modes=", ".join(self.modes)),
+            max_retries=2,  # argument validation errors (e.g. a bad mode) get a retry
         )
+        settings: ModelSettings | None = None
+        if self.config.temperature is not None:
+            settings = ModelSettings(temperature=self.config.temperature)
         self._agent: Agent[RunDeps, _LLMDecision] = Agent(
             self.model,
             deps_type=RunDeps,
@@ -88,18 +91,20 @@ class Matcher:
             instructions=text,
             tools=[search_tool, *extra_tools],
             retries=self.config.output_retries,
+            model_settings=settings,
         )
         self._agent.output_validator(_validate_decision)
 
     async def match_async(self, name: str, context: dict[str, Any] | None = None) -> MatchRun:
-        session = SearchSession(self.search_tool, self.config)
+        session = SearchSession(self.search_tool, self.config, query_name=name)
+        prefetched = await session.prefetch()
         deps = RunDeps(session=session)
         limits = UsageLimits(request_limit=self.config.max_rounds)
         decision: MatchDecision | None = None
         failure: str | None = None
 
         async with self._agent.iter(
-            build_user_prompt(name, context), deps=deps, usage_limits=limits
+            build_user_prompt(name, context, prefetched), deps=deps, usage_limits=limits
         ) as run:
             try:
                 async for _node in run:
@@ -160,9 +165,11 @@ class Matcher:
         return list(await asyncio.gather(*(one(i) for i in range(len(names)))))
 
 
-async def _search(ctx: RunContext[RunDeps], query: str) -> dict[str, Any]:
-    """Search the list for records containing this exact string."""
-    reply: SearchReply = await ctx.deps.session.run(query)
+async def _search(
+    ctx: RunContext[RunDeps], query: str, mode: SearchMode = "contains"
+) -> dict[str, Any]:
+    """Search the list for records matching this string in the given mode."""
+    reply: SearchReply = await ctx.deps.session.run(query, mode)
     # Drop empty lists and nulls so the model reads fewer tokens per search.
     return reply.model_dump(exclude_none=True, exclude_defaults=True)
 

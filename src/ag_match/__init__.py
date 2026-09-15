@@ -2,12 +2,14 @@
 
 from .matcher import Matcher, RunDeps
 from .models import DEFAULT_MODEL, GoogleCloudAuth, resolve_model
-from .tools import InMemorySearchTool, SearchSession, SearchTool, normalize_query
+from .text import distinctive_words, normalize, similarity
+from .tools import InMemorySearchTool, SearchSession, SearchTool, available_modes, normalize_query
 from .types import (
     MatchConfig,
     MatchDecision,
     MatchRun,
     Record,
+    SearchMode,
     SearchReply,
     SearchResult,
     SearchTrace,
@@ -27,9 +29,14 @@ __all__ = [
     "SearchReply",
     "SearchResult",
     "SearchSession",
+    "SearchMode",
     "SearchTool",
     "SearchTrace",
     "Usage",
+    "available_modes",
+    "distinctive_words",
+    "normalize",
     "normalize_query",
     "resolve_model",
+    "similarity",
 ]
