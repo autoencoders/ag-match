@@ -10,6 +10,8 @@
  Last updated:  2026-09-21
  Diagram:       ag-match-architecture.png (attach to this page; source SVG:
                 ag-match-architecture.svg)
+ This page:     ships inside the package at `ag_match/docs/`, so it travels with
+                the code into any app that vendors or installs it
 
 
 --------------------------------------------------------------------------------
