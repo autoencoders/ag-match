@@ -231,5 +231,6 @@ git subtree add --prefix=myapp/namematch https://github.com/autoencoders/ag-matc
 ```
 
 Then add `pydantic` and `pydantic-ai-slim[google]` to the app's dependencies and import
-from the new path. To pick up later changes, repeat with `git subtree pull`. Refresh the
+from the new path. `docs/` travels with it: `ag_match/docs/ag-match-confluence.txt` is a
+plain-text component overview, with the architecture diagram beside it. To pick up later changes, repeat with `git subtree pull`. Refresh the
 branch after merging to main with `./scripts/publish-package-branch.sh main`.
