@@ -4,14 +4,11 @@
 
  Status:        Active — v0.1.0
  Owner:         Julian Mulla
- Repository:    https://github.com/autoencoders/ag-match
  Language:      Python 3.12+
  Consumed as:   a library, a copied-in source folder, or a command line program
  Last updated:  2026-09-21
  Diagram:       ag-match-architecture.png (attach to this page; source drawing:
                 ag-match-architecture.svg)
- This page:     ships inside the package at ag_match/docs/, so it travels with
-                the code into any application that copies or installs it
 
 
 --------------------------------------------------------------------------------
@@ -258,8 +255,8 @@ Three ways to connect a list are in use:
                    tables store the normalized name in its own column or a
                    materialized view.
 
-  your own         any SQL database, internal service or API. The README has a
-                   worked example of about twenty lines.
+  your own         any SQL database, internal service or API. A worked example
+                   of about twenty lines ships with the source.
 
 You may also expose additional lookups of your own — a function that returns a
 ticker for an identifier, say — which the model may call when an entry needs
@@ -359,9 +356,9 @@ to the usual Google Cloud environment variables. With no credentials anywhere,
 startup fails with a message listing every option rather than hanging.
 
 How it is consumed. Three ways: installed as a dependency; copied into an
-application as a folder of plain source files, which carries this page and the
-diagram with it; or run as a small command-line program that matches one name
-against a CSV file, which is meant for spot checks rather than batch work.
+application as a folder of plain source files; or run as a small command-line
+program that matches one name against a CSV file, which is meant for spot checks
+rather than batch work.
 
 --------------------------------------------------------------------------------
 10. EVALUATION
