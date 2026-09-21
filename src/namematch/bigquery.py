@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 
 
 def _norm_sql(column: str) -> str:
-    """SQL for the same normalization as `ag_match.text.normalize`."""
+    """SQL for the same normalization as `namematch.text.normalize`."""
     return f"LOWER(REGEXP_REPLACE(NORMALIZE(COALESCE({column}, ''), NFKD), r'\\pM', ''))"
 
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from ag_match import (
+from namematch import (
     InMemorySearchTool,
     MatchConfig,
     Record,
@@ -10,7 +10,7 @@ from ag_match import (
     SearchSession,
     normalize_query,
 )
-from ag_match.tools import (
+from namematch.tools import (
     NOTE_BUDGET,
     NOTE_EMPTY_QUERY,
     NOTE_LAST_SEARCH,

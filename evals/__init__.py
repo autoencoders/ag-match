@@ -1,1 +1,1 @@
-"""Evaluation harness for ag-match. Not part of the vendored package."""
+"""Evaluation harness for namematch. Not part of the vendored package."""

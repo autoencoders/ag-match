@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from conftest import scripted_model
 
-from ag_match import MatchConfig, Matcher
+from namematch import MatchConfig, Matcher
 
 NO_PREFETCH = MatchConfig(prefetch=False)
 

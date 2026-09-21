@@ -23,7 +23,7 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
-from ag_match import Record
+from namematch import Record
 
 from .dataset import distinctive_tokens, strip_accents
 

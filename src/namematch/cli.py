@@ -27,7 +27,7 @@ def load_csv(path: Path) -> list[Record]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="ag-match", description=__doc__)
+    parser = argparse.ArgumentParser(prog="namematch", description=__doc__)
     parser.add_argument("name", help="Name to match")
     parser.add_argument("--list", required=True, type=Path, help="CSV with id,name columns")
     parser.add_argument(

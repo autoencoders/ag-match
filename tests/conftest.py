@@ -7,7 +7,7 @@ import pytest
 from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart, ToolCallPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
-from ag_match import InMemorySearchTool, Record
+from namematch import InMemorySearchTool, Record
 
 COMPANIES = [
     Record(id="c1", name="Acme Holdings International Inc", extra={"country": "US"}),

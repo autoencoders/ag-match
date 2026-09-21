@@ -1,14 +1,13 @@
 ================================================================================
- ag-match — matching a name against a list, step by step
+ namematch — matching a name against a list, step by step
 ================================================================================
 
  Status:        Active — v0.1.0
- Owner:         Julian Mulla
  Language:      Python 3.12+
  Consumed as:   a library, a copied-in source folder, or a command line program
  Last updated:  2026-09-21
- Diagram:       ag-match-architecture.png (attach to this page; source drawing:
-                ag-match-architecture.svg)
+ Diagram:       namematch-architecture.png (attach to this page; source drawing:
+                namematch-architecture.svg)
 
 
 --------------------------------------------------------------------------------

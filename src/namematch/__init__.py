@@ -1,4 +1,4 @@
-"""ag-match: LLM-driven name matching over a runtime-mounted search tool."""
+"""namematch: LLM-driven name matching over a runtime-mounted search tool."""
 
 from .matcher import Matcher, RunDeps
 from .models import DEFAULT_MODEL, GoogleCloudAuth, resolve_model
