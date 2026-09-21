@@ -1,0 +1,468 @@
+================================================================================
+ ag-match — LLM-driven name matching over a runtime-mounted search tool
+================================================================================
+
+ Status:        Active — v0.1.0 (library, not yet published to an index)
+ Owner:         Julian Mulla
+ Repository:    https://github.com/autoencoders/ag-match
+ Language:      Python >= 3.12 (uv project, ruff, pytest)
+ Consumed as:   a library (`pip`/`uv` dependency), a vendored subtree, or a CLI
+ Last updated:  2026-09-21
+ Diagram:       ag-match-architecture.png (attach to this page; source SVG:
+                ag-match-architecture.svg)
+
+
+--------------------------------------------------------------------------------
+1. WHAT IT IS
+--------------------------------------------------------------------------------
+
+ag-match decides whether a given name refers to the same real-world entity as one
+of the records in a list you already own — typically company names. It is built
+for the cases where plain string matching fails:
+
+  * misspellings and OCR noise        "Acmee Holdngs" -> "Acme Holdings"
+  * abbreviations and expansions      "IBM" <-> "International Business Machines"
+  * legal-suffix noise                "Inc", "Ltd", "GmbH", "SA", "PLC"
+  * filler words                      "Group", "Holdings", "International"
+  * reordered or dropped words        "Banco Popular de Espana" -> "Popular Banco"
+  * accents and transliterations      "Société Générale" -> "Societe Generale"
+
+The component never ingests, indexes or copies your list. You mount a *search
+tool* — anything that can find records by a string — and ag-match drives an LLM
+agent through that tool until it can name one record, declare there is no match,
+or say the evidence is ambiguous.
+
+Two sentences on the division of labour, because it is the whole design:
+
+  The RUNTIME owns candidate generation, result shaping and every budget.
+  The LLM only proposes search strings and makes the final call.
+
+That split is what keeps the component cheap, bounded and auditable: the model
+cannot invent a record id, cannot loop forever, and cannot be flooded with rows.
+
+
+--------------------------------------------------------------------------------
+2. WHEN TO USE IT (AND WHEN NOT TO)
+--------------------------------------------------------------------------------
+
+Use it when:
+  * you have a canonical list (customers, counterparties, suppliers, issuers) and
+    a stream of dirty names to reconcile against it;
+  * deterministic fuzzy matching already exists but leaves a long tail of
+    judgement calls (namesakes, abbreviations, translations);
+  * you need an auditable answer: what was searched, what was shown, why.
+
+Do not use it when:
+  * the join key is exact and clean — a SQL join is cheaper and better;
+  * you need millions of matches per hour at negligible cost (each match is one
+    or more LLM round trips; see §10 for the cost model);
+  * you need ranking of many candidates rather than one decision — ag-match
+    returns a single best match plus ranked alternatives, not a scored list.
+
+
+--------------------------------------------------------------------------------
+3. ARCHITECTURE
+--------------------------------------------------------------------------------
+
+See the attached image `ag-match-architecture.png`. Text fallback:
+
+  +--------------+
+  | Your app/CLI |
+  |  match_async |----------------------------+
+  |(name,context)|                            |
+  +--------------+                            v
+         ^                       +-------------------------------------+
+         |                       |  ag-match runtime (Matcher)         |
+         |                       |                                     |
+         |                       |  1. PREFETCH (deterministic)        |
+         |                       |     distinctive words + one fuzzy   |
+         |                       |     search, before the LLM's turn   |
+         |                       |                |                    |
+         |                       |                v                    |
+         |                       |  2. PROMPT                          |
+         |                       |     instructions + QUERY + CONTEXT  |
+         |                       |     + CANDIDATES from prefetch      |
+         |                       |                |                    |
+         |                       |                v                    |
+         |                       |  3. AGENT LOOP (pydantic-ai)  <--------->  LLM provider
+         |                       |     proposes short, distinctive     |      Gemini / OpenAI /
+         |                       |     strings + a mode; narrows,      |      Anthropic / Vertex
+         |                       |     widens, or decides              |
+         |                       |         |            ^              |
+         |                       |  search |            | shaped rows  |
+         |                       |         v            |              |
+         |                       |  4. SEARCHSESSION (shaping)   <--------->  SearchTool
+         |                       |     rank by similarity, cap rows,   |      InMemory /
+         |                       |     dedupe, too-many + no-result    |      BigQuery /
+         |                       |     notes, repeat short-circuit,    |      your SQL or API
+         |                       |     budget accounting               |
+         |                       |                |                    |
+         |                       |                v                    |
+         |  MatchRun             |  5. DECISION VALIDATOR              |
+         +-----------------------|     match_id / alternatives must be |
+            decision + trace     |     ids the LLM was actually shown  |
+            + usage              +-------------------------------------+
+
+Only the rows the runtime chooses to show ever reach the model. The list itself
+stays in your database.
+
+Module map (src/ag_match/, ~1.1k lines of runtime code):
+
+  types.py      Public pydantic models: Record, SearchResult, SearchReply,
+                MatchConfig, MatchDecision, SearchTrace, Usage, MatchRun.
+  tools.py      The `SearchTool` protocol (the extension point), the reference
+                `InMemorySearchTool`, and `SearchSession` — all result shaping
+                and budget enforcement lives here.
+  matcher.py    `Matcher`: builds the pydantic-ai agent, wires the search tool,
+                runs the loop, validates the decision, assembles `MatchRun`.
+  prompts.py    System instructions and the user prompt (QUERY / CONTEXT /
+                CANDIDATES rendering).
+  text.py       Normalization, tokenization, the generic-word stoplist, trigram
+                similarity, bounded Levenshtein, fuzzy word distance.
+  models.py     Model-spec resolution and Google auth (`GoogleCloudAuth`).
+  bigquery.py   `BigQuerySearchTool` — all three modes implemented in SQL.
+  cli.py        `ag-match` console script over a CSV list.
+
+Framework containment: pydantic-ai is used only inside `matcher.py` and
+`models.py`. Every type a caller or a backend touches is plain pydantic.
+
+
+--------------------------------------------------------------------------------
+4. HOW ONE MATCH RUNS
+--------------------------------------------------------------------------------
+
+Step 1 — Prefetch (no LLM involved).
+  The runtime takes the query name, strips accents and case, drops generic words
+  (legal forms and filler), and searches the first `prefetch_terms` (default 3)
+  distinctive words in `contains` mode. If the backend supports fuzzy search it
+  also runs one fuzzy search over those terms joined; if that returns nothing and
+  there was more than one term, it retries fuzzy on the longest term alone (one
+  noise word should not sink the whole query). Up to 5 backend calls, no tokens
+  spent, and in the easy cases the answer is already on the table.
+
+Step 2 — First prompt.
+  The model receives the instructions (which include the backend's own
+  `description`, the modes it supports, and the budgets), the QUERY, the optional
+  CONTEXT dict, a summary of the searches already run, and the CANDIDATES found.
+  It is told explicitly not to repeat the prefetch searches and to decide
+  immediately if a candidate is clearly the entity.
+
+Step 3 — Agent loop.
+  If it is not yet satisfied, the model calls `search(query, mode)`. It is
+  instructed to search short, distinctive fragments rather than whole names, to
+  skip legal suffixes and filler, to use `fuzzy` on suspected misspellings, and
+  to use `all_terms` to combine two individually common words. Several searches
+  may be issued in one turn.
+
+Step 4 — Shaping (`SearchSession`, every search, including prefetch).
+  * fetches up to `fetch_limit` rows (default = `too_many_threshold`, 60);
+  * ranks them by trigram-Jaccard similarity to the *query name*, not the search
+    string, so the most plausible rows survive the cut;
+  * shows at most `records_per_search` (default 15);
+  * above `too_many_threshold` total matches, attaches a "narrow it" note and —
+    with `show_on_too_many` (default on) — still shows the most similar fetched
+    rows rather than nothing;
+  * dedupes: a record already shown comes back only as an id in
+    `already_shown_ids`, never as a second copy of the row;
+  * short-circuits an exact repeat of a previous (mode, normalized string), an
+    empty string, an unsupported mode, and anything past the search budget — all
+    without touching the backend;
+  * records everything in the trace, including the searches it refused to run.
+
+Step 5 — Decision and validation.
+  The model must return `reasoning` first, then `status`, `match_id`,
+  `confidence` and `alternatives`. A validator then checks the decision against
+  the set of ids actually shown:
+  * `matched` with a missing or never-shown `match_id` -> the model is asked to
+    retry (up to `output_retries`, default 2);
+  * `alternatives` containing unknown ids -> retry;
+  * `ambiguous` with an empty `alternatives` -> retry;
+  * a `match_id` on a non-matched status is dropped; a `match_id` echoed inside
+    `alternatives` is removed from them.
+  This is what closes the hallucinated-match hole.
+
+Step 6 — Result.
+  `MatchRun` carries the decision, the full search trace, every record shown, and
+  token/request usage. If the run exhausted its round budget or the model never
+  produced a valid decision, the status is `inconclusive` with the reason in
+  `reasoning` — the component never guesses to fill a gap.
+
+
+--------------------------------------------------------------------------------
+5. PUBLIC API
+--------------------------------------------------------------------------------
+
+  from ag_match import InMemorySearchTool, Matcher, Record
+
+  records = [
+      Record(id="c1", name="Acme Holdings International Inc", extra={"country": "US"}),
+      Record(id="c2", name="Acme Widgets Ltd",               extra={"country": "GB"}),
+  ]
+  matcher = Matcher(InMemorySearchTool(records, extra_fields=["country"]))
+
+  run = matcher.match("Acmee Holdngs Intl.", context={"country": "US"})
+
+  run.decision      # status, match_id, confidence, reasoning, alternatives
+  run.match         # the Record, or None
+  run.alternatives  # [Record, ...]
+  run.searches      # every search: string, mode, count, ids shown, runtime note
+  run.usage         # requests, tool_calls, input_tokens, output_tokens
+
+Entry points
+  Matcher(search, *, model=None, config=None, google_cloud=None,
+          extra_tools=(), instructions=None)
+  await matcher.match_async(name, context=None)   -> MatchRun    (primary API)
+  matcher.match(name, context=None)               -> MatchRun    (sync wrapper)
+  await matcher.match_many(names, contexts=None, concurrency=4) -> [MatchRun]
+
+`context` is a free-form dict (country, sector, city, ...) rendered into the
+prompt as JSON and used to rule out namesakes.
+
+`extra_tools` mounts additional plain typed callables with docstrings — e.g. a
+`lookup_ticker(company_id) -> str` the model can call to disambiguate.
+
+`instructions` replaces the system prompt wholesale; it receives the same
+`str.format` fields as the default (`tool_description`, `modes`, and every
+`MatchConfig` field).
+
+Decision statuses
+  matched         exactly one record is the same entity (`match_id` set)
+  no_match        searched adequately, nothing in the list is the entity
+  ambiguous       two or more shown records could be it; see `alternatives`
+  inconclusive    runtime-only: budget exhausted, or no valid decision produced
+
+
+--------------------------------------------------------------------------------
+6. MOUNTING A SEARCH BACKEND
+--------------------------------------------------------------------------------
+
+The `SearchTool` protocol is the extension point. Implement:
+
+  description : str    shown to the LLM verbatim — state what fields are
+                       searched and roughly how big the list is
+  search(query: str, limit: int) -> SearchResult          (required, `contains`)
+  search_all_terms(terms: list[str], limit) -> SearchResult   (optional)
+  search_fuzzy(query: str, limit: int) -> SearchResult        (optional)
+
+`SearchResult` = `total_count` (matches in the whole list) + up to `limit`
+records. Methods may be sync or async; sync ones are run in a thread. The runtime
+detects which methods exist and tells the LLM only about the modes it can use.
+
+Search modes
+
+  mode        backend method        meaning
+  ----------  --------------------  ----------------------------------------------
+  contains    search()              the whole string appears inside a name, case
+                                    and accent insensitive
+  all_terms   search_all_terms()    every term appears somewhere in the name, in
+                                    any order
+  fuzzy       search_fuzzy()        every term matches some word of the name
+                                    within a small edit distance
+
+Edit-distance budget in fuzzy mode (`text.default_max_distance`): 0 for terms of
+3 characters or fewer, 1 up to 5 characters, 2 above that.
+
+Fuzzy is what recovers misspellings the model cannot guess. On the synthetic eval
+set, exact substring search can surface the right record for at most 90% of
+queries; fuzzy search reaches 100%. If your backend can support fuzzy at all,
+implement it.
+
+Shipped backends
+
+  InMemorySearchTool  Reference implementation of all three modes over a Python
+                      list. Matches on `name` plus any `extra_fields` you name.
+                      Fuzzy is a per-word Levenshtein scan: fine to a few tens of
+                      thousands of rows, not beyond.
+
+  BigQuerySearchTool  (`ag_match.bigquery`, needs the `bigquery` extra). All
+                      three modes in SQL:
+                        - normalization mirrors Python exactly:
+                          LOWER(REGEXP_REPLACE(NORMALIZE(col, NFKD), r'\pM', ''))
+                        - contains / all_terms use STRPOS
+                        - fuzzy uses EDIT_DISTANCE(word, term, max_distance => n)
+                          over the words of each name, ordered by total distance
+                        - one query per search; total count via COUNT(*) OVER()
+                      Configure: table, id_column, name_column, extra_columns
+                      (shown to the LLM), alias_columns (searched alongside the
+                      name), and an optional `where` filter.
+                      NOTE: every call scans the table. For large tables,
+                      materialize the normalized name in a column or a view.
+
+  Your own            Any SQL database, internal API or service. The README has a
+                      worked example against a SQL connection.
+
+
+--------------------------------------------------------------------------------
+7. CONFIGURATION (MatchConfig)
+--------------------------------------------------------------------------------
+
+  field                default   meaning
+  -------------------  --------  ------------------------------------------------
+  records_per_search   15        max records shown per search, most similar first
+  too_many_threshold   60        above this total count the LLM is told to narrow
+  fetch_limit          = above   rows fetched from the backend before ranking
+  show_on_too_many     true      above the threshold, still show the most similar
+                                 fetched rows instead of nothing
+  prefetch             true      run the deterministic searches before turn 1
+  prefetch_terms       3         max distinctive words searched during prefetch
+  max_searches         8         search calls the LLM may make (prefetch is free)
+  max_rounds           6         LLM requests per match; exceeding it ends the
+                                 run as `inconclusive`
+  output_retries       2         retries when the decision fails validation
+  temperature          0.0       sampling temperature; None = model default
+
+Validation: `too_many_threshold` >= `records_per_search`, and `fetch_limit` (when
+set) >= `records_per_search`.
+
+Rules of thumb
+  * Lots of near-duplicate names -> raise `records_per_search` before raising
+    `max_searches`; showing the right row is cheaper than another round trip.
+  * Very large, very generic lists -> lower `too_many_threshold` so the model is
+    pushed to narrow earlier.
+  * Cost-sensitive batch runs -> keep `prefetch` on and cut `max_rounds` to 3-4;
+    most easy cases are decided on the prefetched candidates alone.
+
+
+--------------------------------------------------------------------------------
+8. MODELS AND AUTHENTICATION
+--------------------------------------------------------------------------------
+
+Model specs follow pydantic-ai's `provider:model` form:
+
+  google:gemini-3.8-flash          Gemini Developer API, GOOGLE_API_KEY
+  google-cloud:gemini-3.8-flash    Vertex AI (alias: vertex:)
+  openai:gpt-5
+  anthropic:claude-sonnet-4-5
+
+Default: `google:gemini-3.8-flash`. The bare string "gemini" (and no `model` at
+all) auto-routes: the Developer API when GOOGLE_API_KEY / GEMINI_API_KEY is set
+and no `google_cloud` is given, otherwise Vertex AI via Application Default
+Credentials.
+
+Vertex credentials, via `GoogleCloudAuth(...)`: a service-account key file, the
+parsed key dict, ready `google.auth` credentials, or nothing at all for ADC
+(GOOGLE_APPLICATION_CREDENTIALS, `gcloud auth application-default login`, or the
+metadata server of a GCE / GKE / Cloud Run / Cloud Functions host). `project`
+falls back to the key's `project_id` then GOOGLE_CLOUD_PROJECT; `location` falls
+back to GOOGLE_CLOUD_LOCATION then `us-central1`.
+
+So on a Google Cloud host with an attached service account, `Matcher(tool)` with
+no configuration at all just works. With no credentials anywhere, the ADC probe
+takes a few seconds and then fails with a message listing every option.
+
+
+--------------------------------------------------------------------------------
+9. CLI
+--------------------------------------------------------------------------------
+
+  uv run ag-match "Acmee Holdngs Intl." --list companies.csv \
+      --context country=US --trace
+
+  uv run ag-match "Acmee Holdngs Intl." --list companies.csv \
+      --service-account sa.json --location global
+
+The CSV needs `id` and `name` columns; every other column becomes an `extra`
+field and is searchable. Output is JSON on stdout; `--trace` adds the search
+trace and the records shown. Other flags: `--model`, `--project`,
+`--max-searches`. Intended for smoke tests and one-off checks, not batch runs.
+
+
+--------------------------------------------------------------------------------
+10. COST, LATENCY AND DATA EXPOSURE
+--------------------------------------------------------------------------------
+
+Per match, worst case at defaults: up to 5 prefetch backend calls + up to 8
+LLM-issued searches, inside at most 6 LLM requests. Typical easy cases finish in
+one LLM request because prefetch already surfaced the record.
+
+What reaches the model: the instructions, the query name, your `context` dict,
+and the `id`, `name` and `extra` fields of the rows the runtime chose to show
+(at most `records_per_search` per search). The list as a whole never leaves your
+infrastructure, and `total_count` is the only aggregate disclosed. Keep `extra`
+small — it is rendered verbatim into the prompt for every row shown.
+
+The main cost levers are `prefetch` (on: fewer rounds), `max_rounds`,
+`records_per_search`, and the model choice. `match_many` bounds concurrency
+(default 4) so a batch cannot stampede either the provider or your database.
+
+
+--------------------------------------------------------------------------------
+11. EVALUATION
+--------------------------------------------------------------------------------
+
+`evals/` builds a seeded synthetic dataset — about 130 curated targets, 1,500
+filler records and 500 queries covering typos, suffix changes, abbreviations,
+reorderings, accents, namesakes that need context, and three kinds of negatives —
+and scores a run on accuracy, precision, recall, searches per case and tokens per
+case, with a per-kind breakdown listing every failure.
+
+  uv run python -m evals.run --baseline                  # fuzzy-string, no LLM
+  uv run python -m evals.run --model heuristic           # fake LLM, no API calls
+  uv run python -m evals.run --model gemini --sample 100
+  uv run python -m evals.run --model gemini --too-many 30 --max-searches 5
+  uv run python -m evals.run --model gemini --kinds typo,reorder
+
+Reports land in `evals/results/` as markdown plus JSON holding every case,
+decision, search string and token count. Run the baseline and the heuristic model
+before changing prompt text or defaults: they are free and they catch regressions
+in the runtime rather than in the model.
+
+
+--------------------------------------------------------------------------------
+12. DEVELOPMENT AND TESTING
+--------------------------------------------------------------------------------
+
+  uv sync
+  uv run pytest                                          # unit tests, no API
+  AG_MATCH_LIVE=1 uv run pytest tests/test_live.py -s    # live Gemini smoke test
+  uv run ruff check . && uv run ruff format .
+
+Tests script a fake LLM through every path of the agent loop (budgets, repeats,
+too-many, invalid ids, retries), so the whole runtime is covered without a single
+API call. Only `tests/test_live.py`, behind `AG_MATCH_LIVE=1`, talks to a model.
+
+
+--------------------------------------------------------------------------------
+13. VENDORING INTO AN APP
+--------------------------------------------------------------------------------
+
+The `package` branch holds only the contents of `src/ag_match` at its root, so an
+app can copy it in under any name with no reference back to this repository:
+
+  git subtree add --prefix=myapp/namematch \
+      https://github.com/autoencoders/ag-match.git package --squash
+
+Then add `pydantic` and `pydantic-ai-slim[google]` to the app's dependencies and
+import from the new path. `git subtree pull` picks up later changes. After
+merging to main, refresh the branch with `./scripts/publish-package-branch.sh
+main`.
+
+
+--------------------------------------------------------------------------------
+14. KNOWN LIMITS
+--------------------------------------------------------------------------------
+
+  * `InMemorySearchTool` fuzzy search is a pure-Python per-word Levenshtein scan:
+    suitable up to a few tens of thousands of rows, then move to a database.
+  * `BigQuerySearchTool` scans the table on every search; precompute the
+    normalized name for large tables.
+  * No semantic / vector search: matching is lexical (substring, term, edit
+    distance) and the LLM supplies the semantic leaps (abbreviation, translation)
+    by proposing better strings.
+  * No cross-run cache: two identical queries cost the same twice.
+  * One decision per query, not a scored ranking of the list.
+  * `ambiguous` and `inconclusive` are real outcomes, not errors — downstream
+    consumers need a path for them (usually human review).
+
+
+--------------------------------------------------------------------------------
+15. GLOSSARY
+--------------------------------------------------------------------------------
+
+  Record            one entry of your list: id, name, small `extra` dict
+  SearchTool        your backend, mounted at runtime; the only way to the list
+  SearchSession     per-run wrapper that shapes results and enforces budgets
+  Prefetch          deterministic searches run before the LLM's first turn
+  Distinctive word  a word that is not a legal form, not filler, >= 3 characters
+  Shown / seen      a record the LLM actually received; only these may be chosen
+  MatchRun          the full result: decision + search trace + records + usage
