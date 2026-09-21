@@ -11,7 +11,7 @@ import unicodedata
 from dataclasses import dataclass, field
 from typing import Any
 
-from ag_match import Record
+from namematch import Record
 
 from .seed_names import TARGETS
 

@@ -21,7 +21,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from ag_match import InMemorySearchTool, MatchConfig, Matcher, MatchRun
+from namematch import InMemorySearchTool, MatchConfig, Matcher, MatchRun
 
 from .baseline import fuzzy_decide, heuristic_model
 from .dataset import ALL_KINDS, Case, Dataset, build_dataset
@@ -240,7 +240,7 @@ def summarize(results: list[CaseResult]) -> dict[str, Any]:
 def render_report(summary: dict[str, Any], results: list[CaseResult], label: str) -> str:
     s = summary
     lines = [
-        f"# ag-match eval: {label}",
+        f"# namematch eval: {label}",
         "",
         f"{s['n']} cases ({s['positives']} positive, {s['negatives']} negative)",
         "",

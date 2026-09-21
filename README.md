@@ -1,4 +1,4 @@
-# ag-match
+# namematch
 
 LLM-driven name matching. Give it a name and a search tool over your list, and an agent
 figures out which record, if any, is the same entity. It copes with misspellings,
@@ -24,7 +24,7 @@ export GOOGLE_API_KEY=...   # Gemini is the default model
 ## Use
 
 ```python
-from ag_match import InMemorySearchTool, Matcher, Record
+from namematch import InMemorySearchTool, Matcher, Record
 
 records = [
     Record(id="c1", name="Acme Holdings International Inc", extra={"country": "US"}),
@@ -55,7 +55,7 @@ Two routes reach Gemini:
   account or any Google Cloud credential.
 
 ```python
-from ag_match import GoogleCloudAuth, Matcher
+from namematch import GoogleCloudAuth, Matcher
 
 # Service-account key file. Project comes from the file, location defaults to us-central1.
 matcher = Matcher(
@@ -99,7 +99,7 @@ Implement a `description` that tells the LLM what your backend holds, and
 `search_all_terms` and `search_fuzzy` to unlock those modes. Sync or async both work.
 
 ```python
-from ag_match import Record, SearchResult
+from namematch import Record, SearchResult
 
 class SqlNameSearch:
     description = "~40k companies; searches cover the `legal_name` and `trade_name` columns."
@@ -128,13 +128,13 @@ matcher = Matcher(SqlNameSearch(conn))
 
 ### BigQuery
 
-`ag_match.bigquery.BigQuerySearchTool` implements all three modes in SQL. Install the
+`namematch.bigquery.BigQuerySearchTool` implements all three modes in SQL. Install the
 extra with `uv sync --extra bigquery` (or add `google-cloud-bigquery` to your app).
 
 ```python
 from google.cloud import bigquery
-from ag_match import Matcher
-from ag_match.bigquery import BigQuerySearchTool
+from namematch import Matcher
+from namematch.bigquery import BigQuerySearchTool
 
 tool = BigQuerySearchTool(
     bigquery.Client(),
@@ -188,8 +188,8 @@ ids the LLM was actually shown.
 ## CLI
 
 ```sh
-uv run ag-match "Acmee Holdngs Intl." --list companies.csv --context country=US --trace
-uv run ag-match "Acmee Holdngs Intl." --list companies.csv --service-account sa.json --location global
+uv run namematch "Acmee Holdngs Intl." --list companies.csv --context country=US --trace
+uv run namematch "Acmee Holdngs Intl." --list companies.csv --service-account sa.json --location global
 ```
 
 The CSV needs `id` and `name` columns; other columns become `extra` fields.
@@ -198,7 +198,7 @@ The CSV needs `id` and `name` columns; other columns become `extra` fields.
 
 ```sh
 uv run pytest                     # unit tests, no API calls
-AG_MATCH_LIVE=1 uv run pytest tests/test_live.py -s   # live smoke test against Gemini
+NAMEMATCH_LIVE=1 uv run pytest tests/test_live.py -s   # live smoke test against Gemini
 uv run ruff check . && uv run ruff format .
 ```
 
@@ -222,12 +222,12 @@ search string and token count. Use `--kinds typo,reorder` to focus on one failur
 
 ## Vendor into an app
 
-The `package` branch holds only the contents of `src/ag_match` at its root. Copy it
+The `package` branch holds only the contents of `src/namematch` at its root. Copy it
 into an app under any name with git subtree; the result is plain committed files with
 no reference back to this repo:
 
 ```sh
-git subtree add --prefix=myapp/namematch https://github.com/autoencoders/ag-match.git package --squash
+git subtree add --prefix=myapp/namematch <repository-url> package --squash
 ```
 
 Then add `pydantic` and `pydantic-ai-slim[google]` to the app's dependencies and import

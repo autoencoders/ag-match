@@ -6,7 +6,7 @@ import pytest
 from google.auth.credentials import AnonymousCredentials
 from pydantic_ai.models.google import GoogleModel
 
-from ag_match import DEFAULT_MODEL, GoogleCloudAuth, Matcher, resolve_model
+from namematch import DEFAULT_MODEL, GoogleCloudAuth, Matcher, resolve_model
 
 
 def vertex_client(model: GoogleModel):

@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from conftest import scripted_model
 
-from ag_match import InMemorySearchTool, MatchConfig, Matcher
 from evals.baseline import fuzzy_decide, heuristic_model, rank, score
 from evals.dataset import ALL_KINDS, NEGATIVE_KINDS, build_dataset, perturb
 from evals.run import classify, result_from_run, run_baseline, summarize
+from namematch import InMemorySearchTool, MatchConfig, Matcher
 
 
 def test_dataset_is_deterministic_and_well_formed():

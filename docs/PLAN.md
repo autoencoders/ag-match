@@ -1,4 +1,4 @@
-# ag-match plan
+# namematch plan
 
 Goal: match one name (typically a company name) against a list of names using an LLM,
 where plain string matching fails: misspellings, abbreviations, legal-suffix noise,
@@ -46,7 +46,7 @@ word reordering, transliteration.
    Tests script a fake LLM through every path.
 4. Providers: model spec resolution (Gemini default, OpenAI, Anthropic), env config,
    live Gemini smoke test behind an env flag.
-5. Batch + CLI: `match_many`, `ag-match "name" --list names.csv`.
+5. Batch + CLI: `match_many`, `namematch "name" --list names.csv`.
 6. Eval harness: synthetic perturbations of a seed list, precision / recall / searches
    per match / tokens per match; tune prompt and defaults.
 7. Docs: README with a worked SQL-backed tool example.

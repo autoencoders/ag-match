@@ -7,8 +7,8 @@ import pytest
 
 pytest.importorskip("google.cloud.bigquery")
 
-from ag_match import MatchConfig, SearchSession, available_modes  # noqa: E402
-from ag_match.bigquery import BigQuerySearchTool  # noqa: E402
+from namematch import MatchConfig, SearchSession, available_modes  # noqa: E402
+from namematch.bigquery import BigQuerySearchTool  # noqa: E402
 
 
 @dataclass
