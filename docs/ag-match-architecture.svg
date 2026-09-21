@@ -1,0 +1,109 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1160" height="700" viewBox="0 0 1160 700" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#44596b"/>
+    </marker>
+    <marker id="arrowlight" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#2f6f9f"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1160" height="700" fill="#ffffff"/>
+
+  <text x="40" y="44" font-size="22" font-weight="bold" fill="#1d2b36">ag-match — LLM name matching over a mounted search tool</text>
+  <text x="40" y="68" font-size="14" fill="#5b6b7a">The runtime owns candidate generation, result shaping and every budget. The LLM only proposes search strings and decides.</text>
+
+  <!-- runtime container -->
+  <rect x="262" y="96" width="570" height="562" rx="12" fill="#f7f9fb" stroke="#9fb0bf" stroke-width="2" stroke-dasharray="7 5"/>
+  <text x="282" y="122" font-size="15" font-weight="bold" fill="#44596b">ag-match runtime — Matcher</text>
+
+  <!-- caller -->
+  <rect x="40" y="300" width="176" height="96" rx="10" fill="#eef4f9" stroke="#2f6f9f" stroke-width="2"/>
+  <text x="128" y="336" font-size="15" font-weight="bold" fill="#1d2b36" text-anchor="middle">Your app / CLI</text>
+  <text x="128" y="358" font-size="13" fill="#5b6b7a" text-anchor="middle">matcher.match_async(</text>
+  <text x="128" y="376" font-size="13" fill="#5b6b7a" text-anchor="middle">name, context)</text>
+
+  <!-- 1 prefetch -->
+  <rect x="292" y="140" width="330" height="76" rx="9" fill="#ffffff" stroke="#5b6b7a" stroke-width="1.8"/>
+  <text x="308" y="166" font-size="14" font-weight="bold" fill="#1d2b36">1 · Prefetch (deterministic)</text>
+  <text x="308" y="187" font-size="13" fill="#5b6b7a">search each distinctive word, plus one fuzzy</text>
+  <text x="308" y="205" font-size="13" fill="#5b6b7a">search — before the LLM's first turn</text>
+
+  <!-- 2 prompt -->
+  <rect x="292" y="238" width="330" height="76" rx="9" fill="#ffffff" stroke="#5b6b7a" stroke-width="1.8"/>
+  <text x="308" y="264" font-size="14" font-weight="bold" fill="#1d2b36">2 · Prompt</text>
+  <text x="308" y="285" font-size="13" fill="#5b6b7a">instructions + QUERY + CONTEXT +</text>
+  <text x="308" y="303" font-size="13" fill="#5b6b7a">CANDIDATES found by prefetch</text>
+
+  <!-- 3 agent loop -->
+  <rect x="292" y="336" width="330" height="92" rx="9" fill="#eef4f9" stroke="#2f6f9f" stroke-width="2"/>
+  <text x="308" y="362" font-size="14" font-weight="bold" fill="#1d2b36">3 · Agent loop (pydantic-ai)</text>
+  <text x="308" y="383" font-size="13" fill="#5b6b7a">LLM proposes short, distinctive strings</text>
+  <text x="308" y="401" font-size="13" fill="#5b6b7a">and a mode; narrows, widens or decides</text>
+  <text x="308" y="419" font-size="13" fill="#5b6b7a">budgets: max_rounds, max_searches</text>
+
+  <!-- 4 search session -->
+  <rect x="292" y="450" width="330" height="92" rx="9" fill="#ffffff" stroke="#5b6b7a" stroke-width="1.8"/>
+  <text x="308" y="476" font-size="14" font-weight="bold" fill="#1d2b36">4 · SearchSession (shaping)</text>
+  <text x="308" y="497" font-size="13" fill="#5b6b7a">rank by trigram similarity · cap rows shown</text>
+  <text x="308" y="515" font-size="13" fill="#5b6b7a">dedupe seen ids · too-many / no-result notes</text>
+  <text x="308" y="533" font-size="13" fill="#5b6b7a">repeat short-circuit · budget accounting</text>
+
+  <!-- 5 validator -->
+  <rect x="292" y="564" width="330" height="72" rx="9" fill="#ffffff" stroke="#5b6b7a" stroke-width="1.8"/>
+  <text x="308" y="590" font-size="14" font-weight="bold" fill="#1d2b36">5 · Decision validator</text>
+  <text x="308" y="611" font-size="13" fill="#5b6b7a">match_id and alternatives must be ids the</text>
+  <text x="308" y="629" font-size="13" fill="#5b6b7a">LLM was shown — else retry the model</text>
+
+  <!-- LLM provider -->
+  <rect x="884" y="336" width="236" height="92" rx="10" fill="#eef4f9" stroke="#2f6f9f" stroke-width="2"/>
+  <text x="1002" y="368" font-size="15" font-weight="bold" fill="#1d2b36" text-anchor="middle">LLM provider</text>
+  <text x="1002" y="391" font-size="13" fill="#5b6b7a" text-anchor="middle">Gemini (default) · OpenAI ·</text>
+  <text x="1002" y="409" font-size="13" fill="#5b6b7a" text-anchor="middle">Anthropic · Vertex AI</text>
+
+  <!-- SearchTool backends -->
+  <rect x="884" y="450" width="236" height="150" rx="10" fill="#ffffff" stroke="#5b6b7a" stroke-width="1.8"/>
+  <text x="1002" y="478" font-size="15" font-weight="bold" fill="#1d2b36" text-anchor="middle">SearchTool (your list)</text>
+  <text x="1002" y="500" font-size="12.5" fill="#5b6b7a" text-anchor="middle">contains · all_terms · fuzzy</text>
+  <line x1="906" y1="512" x2="1098" y2="512" stroke="#d3dce3" stroke-width="1.5"/>
+  <text x="906" y="534" font-size="13" fill="#5b6b7a">• InMemorySearchTool</text>
+  <text x="906" y="556" font-size="13" fill="#5b6b7a">• BigQuerySearchTool</text>
+  <text x="906" y="578" font-size="13" fill="#5b6b7a">• your SQL / API backend</text>
+
+  <!-- caller -> runtime -->
+  <path d="M 128 300 L 128 178 L 286 178" stroke="#2f6f9f" stroke-width="2" fill="none" marker-end="url(#arrowlight)"/>
+  <!-- runtime -> caller (result) -->
+  <path d="M 292 600 L 240 600 L 240 396 L 128 396" stroke="#2f6f9f" stroke-width="2" fill="none" marker-end="url(#arrowlight)"/>
+  <text x="46" y="432" font-size="13" font-weight="bold" fill="#2f6f9f">MatchRun</text>
+  <text x="46" y="452" font-size="12.5" fill="#5b6b7a">decision (status, match_id,</text>
+  <text x="46" y="470" font-size="12.5" fill="#5b6b7a">confidence, reasoning,</text>
+  <text x="46" y="488" font-size="12.5" fill="#5b6b7a">alternatives)</text>
+  <text x="46" y="510" font-size="12.5" fill="#5b6b7a">+ search trace + usage</text>
+
+  <!-- vertical chain -->
+  <path d="M 457 216 L 457 232" stroke="#44596b" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+  <path d="M 457 314 L 457 330" stroke="#44596b" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+  <path d="M 400 428 L 400 444" stroke="#44596b" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+  <text x="410" y="442" font-size="12" fill="#5b6b7a">search(query, mode)</text>
+  <path d="M 540 444 L 540 428" stroke="#44596b" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+  <text x="552" y="442" font-size="12" fill="#5b6b7a">shaped rows</text>
+  <path d="M 457 542 L 457 558" stroke="#44596b" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+
+  <!-- prefetch also uses the session -->
+  <path d="M 292 200 L 278 200 L 278 496 L 286 496" stroke="#9fb0bf" stroke-width="1.8" fill="none" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+
+  <!-- agent loop <-> LLM -->
+  <path d="M 622 366 L 878 366" stroke="#2f6f9f" stroke-width="2" fill="none" marker-end="url(#arrowlight)"/>
+  <text x="662" y="358" font-size="12" fill="#5b6b7a">prompt + tool schema</text>
+  <path d="M 878 402 L 622 402" stroke="#2f6f9f" stroke-width="2" fill="none" marker-end="url(#arrowlight)"/>
+  <text x="662" y="420" font-size="12" fill="#5b6b7a">tool calls / final decision</text>
+
+  <!-- session <-> backend -->
+  <path d="M 622 486 L 878 486" stroke="#44596b" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+  <text x="648" y="478" font-size="12" fill="#5b6b7a">exact string + fetch_limit</text>
+  <path d="M 878 522 L 622 522" stroke="#44596b" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+  <text x="648" y="540" font-size="12" fill="#5b6b7a">total_count + up to limit records</text>
+
+  <text x="884" y="640" font-size="12.5" fill="#9fb0bf">The list never leaves your infrastructure:</text>
+  <text x="884" y="658" font-size="12.5" fill="#9fb0bf">only the rows shown reach the model.</text>
+</svg>
